@@ -1,0 +1,54 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          SA_PASSWORD: YourStrongPassword123
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "timeout 5 bash -c '</dev/tcp/localhost/1433'" 
+          --health-interval=10s 
+          --health-timeout=5s 
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v2
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore TaskManagementAPI/TaskManagementAPI.csproj
+
+      - name: Build the project
+        run: dotnet build TaskManagementAPI/TaskManagementAPI.csproj --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test TaskManagementAPI.Tests/TaskManagementAPI.Tests.csproj --no-restore --logger:trx
+
+      - name: Build Docker image
+        run: docker-compose -f docker-compose.yml build
+
+      - name: Push Docker image to DockerHub
+        run: docker-compose -f docker-compose.yml push
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Deploy the Docker image
+        run: docker-compose -f docker-compose.yml up -d
